@@ -1,0 +1,13 @@
+# scene data stays out of git: the scans are Matterport3D-derived (not redistributable) and the annotations are
+# lab data; see "Scenes" in the README for how to get them into data/
+data/scans/*
+data/annotations/*
+!data/scans/.gitkeep
+!data/annotations/.gitkeep
+
+# saves and logs (the server writes them to ../outputs/annotator by default)
+outputs/
+
+__pycache__/
+*.pyc
+.vscode/

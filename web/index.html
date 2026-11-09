@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Architecture Annotator</title>
+<link rel="stylesheet" href="style.css">
+<script>
+// all URLs are relative, so the page must be addressed as a folder: …/path/ (not …/path)
+if (!location.pathname.endsWith('/') && !location.pathname.endsWith('.html')) location.replace(`${location.pathname}/${location.search}`);
+</script>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/build/three.module.js", "three/addons/": "./vendor/three/examples/jsm/" } }
+</script>
+</head>
+<body>
+<header id="top">
+  <span class="brand">Annotator <small id="tool-version"></small></span>
+  <select id="scene-select" title="Scene"></select>
+  <select id="version-select" title="Annotation version to load"></select>
+  <select id="level-select" title="Level (PgUp / PgDn)"></select>
+  <span class="sep"></span>
+  <span class="seg" title="View">
+    <button data-view="3d" class="on" title="3D view (P toggles plan)">3D</button><button data-view="plan" title="Plan from above (P)">Plan</button><button data-view="wall" title="Straight-on view of the selected wall; again: the other side (V)">Wall</button>
+  </span>
+  <label title="Cut the view at this height above the level floor (C toggles)"><input type="checkbox" id="cut-on" checked> Cut <input type="range" id="cut" min="0.3" max="4" step="0.05" value="1.7"><span id="cut-val">1.7</span></label>
+  <span class="sep"></span>
+  <button id="btn-undo" title="Undo (Ctrl+Z)">↶</button>
+  <button id="btn-redo" title="Redo (Ctrl+Shift+Z)">↷</button>
+  <button id="btn-save" class="primary" title="Save a new version (Ctrl+S)">Save</button>
+  <span id="save-state" class="muted"></span>
+  <span class="grow"></span>
+  <span id="who" title="Annotator (click to change)"></span>
+  <button id="btn-help" title="Shortcuts (?)">?</button>
+</header>
+
+<aside id="left">
+  <div class="tabs"><button data-tab="review" class="on">Review</button><button data-tab="elements">Elements</button><button data-tab="layers">View</button></div>
+
+  <section id="tab-review" class="tab on">
+    <div class="row"><label>Review <select id="q-scope"><option value="level">this level</option><option value="all">all levels</option></select></label>
+      <label title="Lowest Opus confidence first"><input type="checkbox" id="q-lowconf" checked> low confidence first</label></div>
+    <div class="row chips" id="q-kinds"><!-- filled from the type registry --></div>
+    <div class="row"><label><input type="checkbox" id="q-unreviewed" checked> only not rated yet</label></div>
+    <div id="q-progress" class="progress"><div></div></div>
+    <div id="q-card" class="card"></div>
+    <p class="hint">How much of this element, as it now stands, could you base on the scan? Rating moves on to the next.</p>
+    <div class="row buttons ev">
+      <button id="q-prev" title="Previous ([)">◀</button>
+      <button data-ev="strong" class="ok" title="The scan shows it directly (Q)">Strong</button>
+      <button data-ev="partial" class="warn" title="Partly seen; the rest inferred (A)">Partial</button>
+      <button data-ev="assumption" class="bad" title="Not visible in the scan: assumed (Z)">Assumption</button>
+      <button id="q-next" title="Next (])">▶</button>
+    </div>
+    <div class="row"><label class="wrap"><input type="checkbox" id="level-missing-checked"> Checked this level for <b>missing</b> elements</label></div>
+    <h4 class="sec">Notes <span id="notes-count" class="muted"></span> <button id="btn-note2" class="mini" title="Note something hard or impossible to do (N)">+ note</button></h4>
+    <div id="notes-list" class="list"></div>
+  </section>
+
+  <section id="tab-elements" class="tab">
+    <div class="row"><input id="el-filter" placeholder="filter id / name / type"></div>
+    <div class="row chips"><label><input type="checkbox" id="el-level-only" checked> current level only</label></div>
+    <div id="el-list" class="list"></div>
+  </section>
+
+  <section id="tab-layers" class="tab">
+    <div class="row"><label><input type="checkbox" id="lay-scan" checked> Scan (Shift+S)</label> <input type="range" id="scan-opacity" min="0.1" max="1" step="0.05" value="1"></div>
+    <div class="row"><label><input type="checkbox" id="lay-ann" checked> Annotation (H)</label> <input type="range" id="ann-opacity" min="0.05" max="1" step="0.05" value="0.35"></div>
+    <div class="row"><label>Colour <select id="color-mode">
+      <option value="type">by type</option><option value="evidence">by evidence</option><option value="review">by edit status</option>
+      <option value="confidence">by confidence</option><option value="thickness">by wall thickness source</option>
+    </select></label></div>
+    <div class="row chips" id="lay-kinds"><!-- filled from the type registry --></div>
+    <div class="legend" id="legend"></div>
+  </section>
+</aside>
+
+<main id="viewport">
+  <div id="hud">
+  <div id="tools">
+    <span class="grp"><button data-mode="select" class="on" title="Select (1, Esc)">⬚ Select</button></span>
+    <span class="grp">
+      <button data-gmode="translate" class="on" title="Move with the gumball (W) · keyboard move: G">✥ Move</button>
+      <button data-gmode="rotate" title="Rotate about the vertical (E) · keyboard: R">⟳ Rotate</button>
+      <button data-gmode="scale" title="Resize: drag one side, the opposite side stays (T) · keyboard: S">⤢ Resize</button>
+      <button data-gmode="points" title="Edit the corners of rooms, floors, ceilings, columns, built-ins ... (Tab)">⬡ Points</button>
+    </span>
+    <span class="grp">
+      <button data-mode="add-door" title="Add a door: click on a wall (2)">+ Door</button>
+      <button data-mode="add-window" title="Add a window: click on a wall (3)">+ Window</button>
+      <button data-mode="add-opening" title="Add an open passage: click on a wall (4)">+ Passage</button>
+      <button data-mode="add-wall" title="Add a wall: click two points (5)">+ Wall</button>
+      <button data-mode="add-shape" title="Draw a room, column, built-in, bulkhead or unscanned area (6)">✎ Shape</button>
+    </span>
+    <span class="grp">
+      <button data-mode="fit-plane" title="Fit a plane to the scan and apply it to the selection (7)">▱ Fit plane</button>
+      <button id="btn-note" title="Note something that is hard or impossible to do here (N)">⚑ Note</button>
+    </span>
+  </div>
+  <div id="tool-opts">
+    <button id="gizmo-space" title="Gumball axes: the element's own or the world's (.)">Local axes</button>
+    <label id="pivot-wrap" title="What the element turns about">pivot <select id="gizmo-pivot"></select></label>
+    <span id="gizmo-note" class="muted"></span>
+  </div>
+  <div id="mode-hint"></div>
+  </div>
+  <div id="xf-overlay"></div>
+  <div id="snap-label"></div>
+  <div id="box-select"></div>
+  <div id="tooltip"></div>
+  <div id="toast"></div>
+  <div id="loading"><div id="load-text">Loading…</div><div class="bar"><div id="load-bar"></div></div></div>
+</main>
+
+<aside id="right">
+  <div id="props"><p class="muted">Click an element to inspect and edit it. Clicking the same spot again cycles through the elements behind it.</p></div>
+</aside>
+
+<div id="modal" class="modal hidden">
+  <div class="box">
+    <h3>Who is annotating?</h3>
+    <p class="muted">Your name is stored with every save and in the interaction log.</p>
+    <input id="modal-name" placeholder="e.g. stella" autocomplete="off">
+    <button id="modal-ok" class="primary">Start</button>
+  </div>
+</div>
+
+<div id="note-modal" class="modal hidden">
+  <div class="box">
+    <h3>Note</h3>
+    <p class="muted">Something that is hard or impossible to do with the tool. Saved with the annotation, with the current view
+      and selection: <b id="note-elements"></b></p>
+    <label>Kind <select id="note-cat"><option value="hard">hard to do</option><option value="impossible">impossible</option>
+      <option value="wrong">the annotation is wrong in a way I can't fix</option><option value="bug">tool bug</option><option value="other">other</option></select></label>
+    <textarea id="note-text" rows="5" placeholder="What did you try to do, and what got in the way?"></textarea>
+    <div class="actions"><button id="note-save" class="primary">Save note</button> <button id="note-cancel">Cancel</button></div>
+  </div>
+</div>
+
+<div id="help" class="modal hidden">
+  <div class="box wide">
+    <h3>Shortcuts</h3>
+    <table>
+      <tr><th colspan="2">Selecting and viewing</th></tr>
+      <tr><td>Click · Shift+click</td><td>select (again on the same spot: the next element behind) · add / remove from the selection</td></tr>
+      <tr><td>Shift+drag (Plan or Wall view)</td><td>box select</td></tr>
+      <tr><td>P · V</td><td>plan / 3D · straight-on view of the selected wall (V again: from the other side)</td></tr>
+      <tr><td>F · C · Shift+S · H · L</td><td>focus selection · cut · scan · annotation · room labels</td></tr>
+      <tr><td>PgUp / PgDn</td><td>level up / down</td></tr>
+      <tr><th colspan="2">Editing (only the record's parameters change; the shape is rebuilt from them)</th></tr>
+      <tr><td>W · E · T · Tab</td><td>Move · Rotate (gumball) · Resize (drag a side; the opposite side stays) · Points (corners of plan shapes)</td></tr>
+      <tr><td>Dragging</td><td>snaps within 10 px (Ctrl: no snapping); Esc / right-click cancels; Alt over another wall re-hosts a moved opening</td></tr>
+      <tr><td>Points</td><td>drag a corner · drag a blue midpoint to add a corner · Alt+click a corner deletes it · Shift: 45° steps</td></tr>
+      <tr><td>G / R / S</td><td>keyboard move / rotate / scale; then X Y Z (world) or U N (along / across the wall); mouse or a typed value (=0.9 absolute, arithmetic ok); Enter / click confirms, Esc / right-click cancels</td></tr>
+      <tr><td>← → ↑ ↓</td><td>nudge 1 cm (Shift: 10 cm). Walls: ↑↓ across, ←→ along. Openings: ←→ along, ↑↓ up / down</td></tr>
+      <tr><td>Panel numbers</td><td>accept arithmetic: +0.05, *2, 2.4-0.1</td></tr>
+      <tr><td>Several selected</td><td>the panel offers align, distribute evenly and match properties (the last clicked is the reference)</td></tr>
+      <tr><td>Shift+D · Shift+R</td><td>duplicate the selection and move it · repeat the last transform</td></tr>
+      <tr><td>Delete</td><td>delete the selection; deleted elements stay in the element list, where they can be restored</td></tr>
+      <tr><th colspan="2">Adding</th></tr>
+      <tr><td>1 2 3 4 5 6 7</td><td>select · door · window · passage · wall · draw a shape · fit a plane</td></tr>
+      <tr><td>Draw a shape</td><td>click corners; Enter, double-click or a click on the first corner finishes; Backspace removes the last corner</td></tr>
+      <tr><td>Fit a plane</td><td>click flat scan (Shift+click adds surface); the panel lists what the plane can set on the selection</td></tr>
+      <tr><td>Ctrl+C / Ctrl+V</td><td>copy an opening / paste it: click on a wall to place</td></tr>
+      <tr><th colspan="2">Reviewing</th></tr>
+      <tr><td>Q / A / Z · [ / ]</td><td>rate the element: strong evidence / partial evidence / assumption (then the next one) · previous / next item</td></tr>
+      <tr><td>N</td><td>note something hard or impossible to do (saved with the view and the selection)</td></tr>
+      <tr><td>Ctrl+Z / Ctrl+Shift+Z · Ctrl+S</td><td>undo / redo · save a version (autosave every minute)</td></tr>
+    </table>
+    <button id="help-close">Close</button>
+  </div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
