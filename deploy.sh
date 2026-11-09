@@ -12,7 +12,7 @@ RS=(rsync -rltp --chmod=D2775,F664)
 
 mkdir -p "$DEST/data/annotations" "$DEST/data/scans"
 chmod 2775 "$DEST" "$DEST/data" "$DEST/data/annotations" "$DEST/data/scans"
-"${RS[@]}" --delete --exclude data/ --exclude __pycache__/ --exclude '*.pyc' "$SRC/" "$DEST/"
+"${RS[@]}" --delete --exclude .git/ --exclude .gitignore --exclude data/ --exclude __pycache__/ --exclude '*.pyc' "$SRC/" "$DEST/"
 "${RS[@]}" --update "$SRC/data/" "$DEST/data/"          # --update: a newer file already there (edited there) wins
 chmod 775 "$DEST/run.sh" "$DEST/deploy.sh" "$DEST/tools/make_scan.py"
 mkdir -p "$DEST/../outputs/annotator" && chmod 2775 "$DEST/../outputs" "$DEST/../outputs/annotator"
